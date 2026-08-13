@@ -11,27 +11,34 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Extract project payload
+        run: unzip -q Master_Trading_Engine_Cloud_Build_Payload.zip
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
       - name: Prepare Android project
+        working-directory: master_trading_engine_complete_backtest_stage
         run: |
           if [ ! -f android/gradlew ]; then
             flutter create --platforms=android --project-name master_trading_engine .
           fi
       - name: Get dependencies
+        working-directory: master_trading_engine_complete_backtest_stage
         run: flutter pub get
       - name: Analyze
+        working-directory: master_trading_engine_complete_backtest_stage
         run: flutter analyze
       - name: Tests
+        working-directory: master_trading_engine_complete_backtest_stage
         run: flutter test --coverage
       - name: Build debug APK
+        working-directory: master_trading_engine_complete_backtest_stage
         run: flutter build apk --debug
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: master-trading-engine-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: master_trading_engine_complete_backtest_stage/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
