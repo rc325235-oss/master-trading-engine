@@ -115,6 +115,7 @@ class PaperPage extends StatefulWidget {
 class _PaperPageState extends State<PaperPage> {
   final price = TextEditingController(text: '100');
   bool running = false, killed = false;
+  bool positionOpenedThisSession = false;
   double cash = 100000, realized = 0;
   double? entryPrice;
   int trades = 0;
@@ -125,7 +126,14 @@ class _PaperPageState extends State<PaperPage> {
     if (!running || killed || p == null || p <= 0) return;
     setState(() {
       if (entryPrice == null) {
+        // Do not silently re-enter after a target/stop/manual close.
+        // A new position requires a fresh paper-trading session (Start).
+        if (positionOpenedThisSession) {
+          lastAction = 'NO POSITION — WAITING FOR NEW SIGNAL';
+          return;
+        }
         entryPrice = p;
+        positionOpenedThisSession = true;
         lastAction = 'OPEN LONG @ ${p.toStringAsFixed(2)}';
         return;
       }
@@ -173,7 +181,7 @@ class _PaperPageState extends State<PaperPage> {
         TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Market Price', border: OutlineInputBorder())),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          FilledButton(onPressed: killed ? null : () => setState(() { running = true; lastAction = 'Paper trading started'; }), child: const Text('Start')),
+          FilledButton(onPressed: killed ? null : () => setState(() { running = true; positionOpenedThisSession = false; lastAction = 'Paper trading started — waiting for entry tick'; }), child: const Text('Start')),
           OutlinedButton(onPressed: () => setState(() { running = false; lastAction = 'Paper trading paused'; }), child: const Text('Pause')),
           FilledButton.tonal(onPressed: killed ? null : () => setState(() { killed = true; running = false; lastAction = 'KILL SWITCH ACTIVATED'; }), child: const Text('Kill Switch')),
           OutlinedButton(onPressed: running && !killed ? tick : null, child: const Text('Process Tick')),
