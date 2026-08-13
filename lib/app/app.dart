@@ -115,22 +115,52 @@ class PaperPage extends StatefulWidget {
 class _PaperPageState extends State<PaperPage> {
   final price = TextEditingController(text: '100');
   bool running = false, killed = false;
-  double cash = 100000, realized = 0, entry = 0;
+  double cash = 100000, realized = 0;
+  double? entryPrice;
   int trades = 0;
+  String lastAction = 'Waiting for paper tick';
 
   void tick() {
     final p = double.tryParse(price.text);
     if (!running || killed || p == null || p <= 0) return;
     setState(() {
-      if (entry == 0) entry = p;
-      else if (p >= entry * 1.02 || p <= entry * .99) { final pnl = p - entry; cash += pnl; realized += pnl; trades++; entry = 0; }
+      if (entryPrice == null) {
+        entryPrice = p;
+        lastAction = 'OPEN LONG @ ${p.toStringAsFixed(2)}';
+        return;
+      }
+
+      final entry = entryPrice!;
+      final pnl = p - entry;
+      final targetHit = p >= entry * 1.02;
+      final stopHit = p <= entry * .99;
+
+      if (targetHit || stopHit) {
+        cash += pnl;
+        realized += pnl;
+        trades++;
+        lastAction = targetHit
+            ? 'TARGET HIT — CLOSED @ ${p.toStringAsFixed(2)} | P&L ₹${pnl.toStringAsFixed(2)}'
+            : 'STOP HIT — CLOSED @ ${p.toStringAsFixed(2)} | P&L ₹${pnl.toStringAsFixed(2)}';
+        entryPrice = null;
+      } else {
+        lastAction = 'POSITION HELD — LONG @ ${entry.toStringAsFixed(2)} | LTP ${p.toStringAsFixed(2)}';
+      }
     });
   }
 
   void close() {
     final p = double.tryParse(price.text);
-    if (entry == 0 || p == null) return;
-    setState(() { final pnl = p - entry; cash += pnl; realized += pnl; trades++; entry = 0; });
+    final entry = entryPrice;
+    if (entry == null || p == null || p <= 0) return;
+    setState(() {
+      final pnl = p - entry;
+      cash += pnl;
+      realized += pnl;
+      trades++;
+      lastAction = 'MANUAL CLOSE @ ${p.toStringAsFixed(2)} | P&L ₹${pnl.toStringAsFixed(2)}';
+      entryPrice = null;
+    });
   }
 
   @override
@@ -143,14 +173,21 @@ class _PaperPageState extends State<PaperPage> {
         TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Market Price', border: OutlineInputBorder())),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          FilledButton(onPressed: killed ? null : () => setState(() => running = true), child: const Text('Start')),
-          OutlinedButton(onPressed: () => setState(() => running = false), child: const Text('Pause')),
-          FilledButton.tonal(onPressed: killed ? null : () => setState(() { killed = true; running = false; }), child: const Text('Kill Switch')),
+          FilledButton(onPressed: killed ? null : () => setState(() { running = true; lastAction = 'Paper trading started'; }), child: const Text('Start')),
+          OutlinedButton(onPressed: () => setState(() { running = false; lastAction = 'Paper trading paused'; }), child: const Text('Pause')),
+          FilledButton.tonal(onPressed: killed ? null : () => setState(() { killed = true; running = false; lastAction = 'KILL SWITCH ACTIVATED'; }), child: const Text('Kill Switch')),
           OutlinedButton(onPressed: running && !killed ? tick : null, child: const Text('Process Tick')),
-          OutlinedButton(onPressed: entry != 0 ? close : null, child: const Text('Close')),
+          OutlinedButton(onPressed: entryPrice != null ? close : null, child: const Text('Close')),
         ]),
-        const SizedBox(height: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: [metric('Virtual Cash', '₹${cash.toStringAsFixed(2)}'), metric('Realized P&L', '₹${realized.toStringAsFixed(2)}'), metric('Trades', '$trades'), metric('Position', entry == 0 ? 'None' : 'LONG @ ${entry.toStringAsFixed(2)}')]),
+        const SizedBox(height: 10),
+        Card(child: ListTile(leading: const Icon(Icons.info_outline), title: const Text('Last Action'), subtitle: Text(lastAction))),
+        const SizedBox(height: 4),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          metric('Virtual Cash', '₹${cash.toStringAsFixed(2)}'),
+          metric('Realized P&L', '₹${realized.toStringAsFixed(2)}'),
+          metric('Trades', '$trades'),
+          metric('Position', entryPrice == null ? 'None' : 'LONG @ ${entryPrice!.toStringAsFixed(2)}'),
+        ]),
       ]);
 }
 
