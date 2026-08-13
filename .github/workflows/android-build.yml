@@ -1,0 +1,58 @@
+name: Android Build and Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download project payload
+        run: unzip -q Master_Trading_Engine_Cloud_Build_Payload.zip
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Show tool versions
+        run: |
+          flutter --version
+          dart --version
+          java -version
+      - name: Prepare Android project
+        working-directory: master_trading_engine_complete_backtest_stage
+        run: |
+          if [ ! -f android/gradlew ]; then
+            flutter create --platforms=android --project-name master_trading_engine .
+          fi
+          if [ ! -f android/local.properties ]; then
+            printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > android/local.properties
+          fi
+      - name: Get dependencies
+        working-directory: master_trading_engine_complete_backtest_stage
+        run: flutter pub get
+      - name: Analyze
+        working-directory: master_trading_engine_complete_backtest_stage
+        run: flutter analyze
+      - name: Unit and integration tests
+        working-directory: master_trading_engine_complete_backtest_stage
+        run: flutter test --coverage
+      - name: Build debug APK
+        working-directory: master_trading_engine_complete_backtest_stage
+        run: flutter build apk --debug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-trading-engine-debug-apk
+          path: master_trading_engine_complete_backtest_stage/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+      - name: Upload test coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-test-coverage
+          path: master_trading_engine_complete_backtest_stage/coverage/lcov.info
+          if-no-files-found: warn
