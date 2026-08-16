@@ -1,7 +1,7 @@
 name: master_trading_engine
-description: Live AI-style market analysis, hot-trade engine, backtest and paper trading simulator.
+description: Live market intelligence and hot-trade analysis dashboard.
 publish_to: 'none'
-version: 2.0.0+1
+version: 3.0.0+1
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.2
+  web_socket_channel: ^3.0.1
   flutter_lints: ^5.0.0
 
 dev_dependencies:
