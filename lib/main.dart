@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'app/app.dart';
+import 'app/integrated.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MasterTradingEngineApp());
+  runApp(const IntegratedApp());
 }
