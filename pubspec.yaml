@@ -1,7 +1,7 @@
 name: master_trading_engine
-description: Backtest and paper trading release candidate.
+description: Live AI-style market analysis, hot-trade engine, backtest and paper trading simulator.
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+1
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -9,12 +9,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  http: ^1.2.2
   flutter_lints: ^5.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
