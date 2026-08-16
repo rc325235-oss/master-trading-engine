@@ -1,232 +1,79 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+class Candle { final double o,h,l,c,v; Candle(this.o,this.h,this.l,this.c,this.v); }
+
+class Analysis {
+  final String regime, decision, psychology, direction;
+  final int score, buyer, seller;
+  final double rsi, ema20, ema50, ema200, atr, support, resistance;
+  final bool trend, breakout;
+  const Analysis({required this.regime,required this.decision,required this.psychology,required this.direction,required this.score,required this.buyer,required this.seller,required this.rsi,required this.ema20,required this.ema50,required this.ema200,required this.atr,required this.support,required this.resistance,required this.trend,required this.breakout});
+}
 
 class MasterTradingEngineApp extends StatelessWidget {
   const MasterTradingEngineApp({super.key});
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Master Trading Engine',
-        theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.amber),
-        home: const Home(),
-      );
+  @override Widget build(BuildContext context) => MaterialApp(debugShowCheckedModeBanner:false,title:'Master Trading Engine',theme:ThemeData(useMaterial3:true,colorSchemeSeed:Colors.amber,brightness:Brightness.dark),home:const Dashboard());
 }
 
-class Home extends StatelessWidget {
-  const Home({super.key});
-  @override
-  Widget build(BuildContext context) => DefaultTabController(
-        length: 3,
-        child: Scaffold(
-          appBar: AppBar(
-            title: const Text('Master Trading Engine'),
-            actions: const [Chip(avatar: Icon(Icons.lock, size: 16), label: Text('AUTO-TRADING LOCKED'))],
-            bottom: const TabBar(tabs: [
-              Tab(icon: Icon(Icons.science), text: 'Backtest'),
-              Tab(icon: Icon(Icons.account_balance_wallet), text: 'Paper'),
-              Tab(icon: Icon(Icons.security), text: 'Safety'),
-            ]),
-          ),
-          body: const TabBarView(children: [BacktestPage(), PaperPage(), SafetyPage()]),
-        ),
-      );
-}
-
-class BacktestPage extends StatefulWidget {
-  const BacktestPage({super.key});
-  @override
-  State<BacktestPage> createState() => _BacktestPageState();
-}
-
-class _BacktestPageState extends State<BacktestPage> {
-  final prices = TextEditingController(text: '100\n101\n102\n101\n103\n104\n102\n105');
-  final capital = TextEditingController(text: '100000');
-  final qty = TextEditingController(text: '1');
-  double finalCapital = 100000, maxDd = 0;
-  int trades = 0, wins = 0;
-  List<double> curve = [];
-
-  void runBacktest() {
-    final initial = double.tryParse(capital.text) ?? 0;
-    final q = double.tryParse(qty.text) ?? 0;
-    final p = prices.text.split(RegExp(r'[\n,]+')).map(double.tryParse).whereType<double>().where((x) => x > 0).toList();
-    if (initial <= 0 || q <= 0 || p.length < 2) return;
-    var cash = initial, peak = initial, dd = 0.0;
-    double? entry;
-    String? side;
-    var w = 0;
-    var n = 0;
-    final c = <double>[];
-    for (var i = 1; i < p.length; i++) {
-      final price = p[i];
-      final previous = p[i - 1];
-      if (entry == null) {
-        if (price > previous) { entry = price; side = 'LONG'; }
-        else if (price < previous) { entry = price; side = 'SHORT'; }
-      } else {
-        final pnl = side == 'LONG' ? (price - entry!) * q : (entry! - price) * q;
-        final stop = side == 'LONG' ? price <= entry! * .99 : price >= entry! * 1.01;
-        final target = side == 'LONG' ? price >= entry! * 1.02 : price <= entry! * .98;
-        final reversal = (side == 'LONG' && price < previous) || (side == 'SHORT' && price > previous);
-        if (stop || target || reversal || i == p.length - 1) {
-          cash += pnl; n++; if (pnl > 0) w++;
-          entry = null; side = null;
-        }
-      }
-      final unreal = entry == null ? 0 : (side == 'LONG' ? (price - entry!) * q : (entry! - price) * q);
-      final equity = cash + unreal;
-      peak = math.max(peak, equity); dd = math.max(dd, peak - equity); c.add(equity);
-    }
-    setState(() { finalCapital = cash; maxDd = dd; trades = n; wins = w; curve = c; });
+class Dashboard extends StatefulWidget { const Dashboard({super.key}); @override State<Dashboard> createState()=>_DashboardState(); }
+class _DashboardState extends State<Dashboard> {
+  final symbol=TextEditingController(text:'BTCUSDT');
+  String interval='5m'; Timer? timer; bool live=false, loading=false; String error=''; List<Candle> candles=[]; Analysis? a;
+  @override void dispose(){timer?.cancel();symbol.dispose();super.dispose();}
+  Future<void> refresh() async {
+    if(loading)return; setState(()=>loading=true);
+    try {
+      final s=symbol.text.trim().toUpperCase();
+      final url=Uri.parse('https://api.binance.com/api/v3/klines?symbol=$s&interval=$interval&limit=200');
+      final r=await http.get(url).timeout(const Duration(seconds:8));
+      if(r.statusCode!=200) throw Exception('Market data unavailable (${r.statusCode})');
+      final raw=jsonDecode(r.body) as List;
+      final cs=raw.map((x)=>Candle(double.parse(x[1]),double.parse(x[2]),double.parse(x[3]),double.parse(x[4]),double.parse(x[5]))).toList();
+      setState((){candles=cs;a=analyze(cs);error='';});
+    }catch(e){setState(()=>error='Live data error: $e');}finally{if(mounted)setState(()=>loading=false);}
   }
-
-  @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('Historical Backtest', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text('Close prices: one per line or comma separated. Simulation only.'),
-        const SizedBox(height: 12),
-        TextField(controller: capital, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Initial Capital', border: OutlineInputBorder())),
-        const SizedBox(height: 10),
-        TextField(controller: qty, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity', border: OutlineInputBorder())),
-        const SizedBox(height: 10),
-        TextField(controller: prices, minLines: 6, maxLines: 10, decoration: const InputDecoration(labelText: 'Historical close prices', border: OutlineInputBorder())),
-        const SizedBox(height: 10),
-        FilledButton.icon(onPressed: runBacktest, icon: const Icon(Icons.play_arrow), label: const Text('RUN BACKTEST')),
-        const SizedBox(height: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          metric('Initial', '₹${(double.tryParse(capital.text) ?? 0).toStringAsFixed(0)}'),
-          metric('Final', '₹${finalCapital.toStringAsFixed(2)}'),
-          metric('Net P&L', '₹${(finalCapital - (double.tryParse(capital.text) ?? 0)).toStringAsFixed(2)}'),
-          metric('Trades', '$trades'),
-          metric('Win Rate', trades == 0 ? '0.00%' : '${(wins / trades * 100).toStringAsFixed(2)}%'),
-          metric('Max DD', '₹${maxDd.toStringAsFixed(2)}'),
-        ]),
-        if (curve.length > 1) Card(margin: const EdgeInsets.only(top: 12), child: SizedBox(height: 180, child: CustomPaint(painter: CurvePainter(curve)))),
-      ]);
-}
-
-class PaperPage extends StatefulWidget {
-  const PaperPage({super.key});
-  @override
-  State<PaperPage> createState() => _PaperPageState();
-}
-
-class _PaperPageState extends State<PaperPage> {
-  final price = TextEditingController(text: '100');
-  bool running = false, killed = false;
-  bool positionOpenedThisSession = false;
-  double cash = 100000, realized = 0;
-  double? entryPrice;
-  int trades = 0;
-  String lastAction = 'Waiting for paper tick';
-
-  void tick() {
-    final p = double.tryParse(price.text);
-    if (!running || killed || p == null || p <= 0) return;
-    setState(() {
-      if (entryPrice == null) {
-        // Do not silently re-enter after a target/stop/manual close.
-        // A new position requires a fresh paper-trading session (Start).
-        if (positionOpenedThisSession) {
-          lastAction = 'NO POSITION — WAITING FOR NEW SIGNAL';
-          return;
-        }
-        entryPrice = p;
-        positionOpenedThisSession = true;
-        lastAction = 'OPEN LONG @ ${p.toStringAsFixed(2)}';
-        return;
-      }
-
-      final entry = entryPrice!;
-      final pnl = p - entry;
-      final targetHit = p >= entry * 1.02;
-      final stopHit = p <= entry * .99;
-
-      if (targetHit || stopHit) {
-        cash += pnl;
-        realized += pnl;
-        trades++;
-        lastAction = targetHit
-            ? 'TARGET HIT — CLOSED @ ${p.toStringAsFixed(2)} | P&L ₹${pnl.toStringAsFixed(2)}'
-            : 'STOP HIT — CLOSED @ ${p.toStringAsFixed(2)} | P&L ₹${pnl.toStringAsFixed(2)}';
-        entryPrice = null;
-      } else {
-        lastAction = 'POSITION HELD — LONG @ ${entry.toStringAsFixed(2)} | LTP ${p.toStringAsFixed(2)}';
-      }
-    });
+  void toggleLive(){setState(()=>live=!live);timer?.cancel();if(live){refresh();timer=Timer.periodic(const Duration(seconds:15),(_)=>refresh());}}
+  @override Widget build(BuildContext context){
+    return Scaffold(appBar:AppBar(title:const Text('MASTER TRADING ENGINE'),actions:[Padding(padding:const EdgeInsets.all(8),child:Chip(label:Text('AUTO-TRADING LOCKED'),avatar:const Icon(Icons.lock,size:16)))]),body:RefreshIndicator(onRefresh:refresh,child:ListView(padding:const EdgeInsets.all(12),children:[
+      Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(children:[Row(children:[Expanded(child:TextField(controller:symbol,textCapitalization:TextCapitalization.characters,decoration:const InputDecoration(labelText:'Market Symbol',hintText:'BTCUSDT',border:OutlineInputBorder()))),const SizedBox(width:8),DropdownButton<String>(value:interval,items:const ['1m','5m','15m','1h','4h'].map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:(v){if(v!=null)setState(()=>interval=v);})]),const SizedBox(height:10),Row(children:[Expanded(child:FilledButton.icon(onPressed:loading?null:refresh,icon:const Icon(Icons.refresh),label:Text(loading?'ANALYZING...':'ANALYZE LIVE MARKET'))),const SizedBox(width:8),FilterChip(selected:live,onSelected:(_)=>toggleLive(),label:Text(live?'LIVE ON':'LIVE OFF'),avatar:Icon(live?Icons.wifi:Icons.wifi_off))])])),
+      if(error.isNotEmpty)Card(child:ListTile(leading:const Icon(Icons.warning),title:const Text('Market feed'),subtitle:Text(error))),
+      if(candles.isNotEmpty)Card(child:Padding(padding:const EdgeInsets.all(8),child:SizedBox(height:240,child:CustomPaint(painter:CandlePainter(candles))))),
+      if(a!=null)...[
+        _hero(a!),
+        _section('STRATEGY ANALYSIS',[metric('Trend Rider',a!.trend?'VALID':'WAIT'),metric('Breakout + Momentum',a!.breakout?'VALID':'WAIT'),metric('Market Regime',a!.regime),metric('Direction',a!.direction)]),
+        _section('MARKET PSYCHOLOGY',[metric('Buyer Strength','${a!.buyer}/100'),metric('Seller Strength','${a!.seller}/100'),metric('Psychology',a!.psychology)]),
+        _section('TECHNICAL ANALYSIS',[metric('RSI',a!.rsi.toStringAsFixed(1)),metric('EMA 20',a!.ema20.toStringAsFixed(2)),metric('EMA 50',a!.ema50.toStringAsFixed(2)),metric('EMA 200',a!.ema200.toStringAsFixed(2)),metric('Support',a!.support.toStringAsFixed(2)),metric('Resistance',a!.resistance.toStringAsFixed(2)),metric('ATR',a!.atr.toStringAsFixed(2))]),
+        _section('RISK GATE',[const Text('No automatic broker execution. Any suggested setup must be independently verified. SL/target are analytical levels, not guarantees.')]),
+      ] else const Card(child:Padding(padding:EdgeInsets.all(20),child:Column(children:[Icon(Icons.analytics,size:48),SizedBox(height:8),Text('Connect to live market data and press ANALYZE LIVE MARKET.'),SizedBox(height:4),Text('Default feed: Binance public candles. Auto-trading remains locked.')]))),
+      const SizedBox(height:20),const Text('Backtest and Paper Trading are available in the next integrated tabs once the live analyzer is verified.',style:TextStyle(color:Colors.white60))
+    ])));
   }
-
-  void close() {
-    final p = double.tryParse(price.text);
-    final entry = entryPrice;
-    if (entry == null || p == null || p <= 0) return;
-    setState(() {
-      final pnl = p - entry;
-      cash += pnl;
-      realized += pnl;
-      trades++;
-      lastAction = 'MANUAL CLOSE @ ${p.toStringAsFixed(2)} | P&L ₹${pnl.toStringAsFixed(2)}';
-      entryPrice = null;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: [
-        const Text('Paper Trading Dashboard', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text('Virtual execution only. No broker order is sent.'),
-        const SizedBox(height: 12),
-        Card(child: ListTile(leading: Icon(killed ? Icons.block : running ? Icons.play_circle : Icons.pause_circle), title: Text(killed ? 'KILL SWITCH ACTIVE' : running ? 'RUNNING — PAPER ONLY' : 'PAUSED — PAPER ONLY'))),
-        TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Market Price', border: OutlineInputBorder())),
-        const SizedBox(height: 10),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          FilledButton(onPressed: killed ? null : () => setState(() { running = true; positionOpenedThisSession = false; lastAction = 'Paper trading started — waiting for entry tick'; }), child: const Text('Start')),
-          OutlinedButton(onPressed: () => setState(() { running = false; lastAction = 'Paper trading paused'; }), child: const Text('Pause')),
-          FilledButton.tonal(onPressed: killed ? null : () => setState(() { killed = true; running = false; lastAction = 'KILL SWITCH ACTIVATED'; }), child: const Text('Kill Switch')),
-          OutlinedButton(onPressed: running && !killed ? tick : null, child: const Text('Process Tick')),
-          OutlinedButton(onPressed: entryPrice != null ? close : null, child: const Text('Close')),
-        ]),
-        const SizedBox(height: 10),
-        Card(child: ListTile(leading: const Icon(Icons.info_outline), title: const Text('Last Action'), subtitle: Text(lastAction))),
-        const SizedBox(height: 4),
-        Wrap(spacing: 8, runSpacing: 8, children: [
-          metric('Virtual Cash', '₹${cash.toStringAsFixed(2)}'),
-          metric('Realized P&L', '₹${realized.toStringAsFixed(2)}'),
-          metric('Trades', '$trades'),
-          metric('Position', entryPrice == null ? 'None' : 'LONG @ ${entryPrice!.toStringAsFixed(2)}'),
-        ]),
-      ]);
+  Widget _hero(Analysis x)=>Card(color:x.score>=85?Colors.green.shade900:x.score>=75?Colors.blueGrey.shade900:Colors.grey.shade900,child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(x.decision,style:const TextStyle(fontSize:28,fontWeight:FontWeight.bold)),const SizedBox(height:5),Text('HOT TRADE SCORE  ${x.score}/100',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),const SizedBox(height:8),Text('Regime: ${x.regime}  •  Direction: ${x.direction}'),const SizedBox(height:5),Text(x.psychology)])));
+  Widget _section(String title,List<Widget> children)=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(fontWeight:FontWeight.bold,fontSize:17)),const SizedBox(height:8),Wrap(spacing:8,runSpacing:8,children:children)])));
+  Widget metric(String k,String v)=>Container(padding:const EdgeInsets.all(10),constraints:const BoxConstraints(minWidth:120,maxWidth:260),decoration:BoxDecoration(border:Border.all(color:Colors.white24),borderRadius:BorderRadius.circular(10)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(k,style:const TextStyle(color:Colors.white60,fontSize:12)),const SizedBox(height:3),Text(v,style:const TextStyle(fontWeight:FontWeight.bold))]));
 }
 
-class SafetyPage extends StatelessWidget {
-  const SafetyPage({super.key});
-  @override
-  Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: const [
-        Card(child: ListTile(leading: Icon(Icons.lock), title: Text('Real broker orders'), subtitle: Text('DISABLED'))),
-        Card(child: ListTile(leading: Icon(Icons.lock), title: Text('Auto-Trading'), subtitle: Text('LOCKED'))),
-        Card(child: ListTile(leading: Icon(Icons.account_balance_wallet), title: Text('Execution mode'), subtitle: Text('Paper / Virtual only'))),
-        Card(child: ListTile(leading: Icon(Icons.warning_amber), title: Text('Kill Switch'), subtitle: Text('Available in Paper Trading'))),
-      ]);
+Analysis analyze(List<Candle> c){
+  final closes=c.map((x)=>x.c).toList(), highs=c.map((x)=>x.h).toList(), lows=c.map((x)=>x.l).toList();
+  double ema(int n){var e=closes.first, k=2/(n+1);for(final p in closes.skip(1)){e=p*k+e*(1-k);}return e;}
+  final e20=ema(20),e50=ema(50),e200=ema(200),last=closes.last;
+  double rsi(){var gain=0.0,loss=0.0;final n=math.min(14,closes.length-1);for(var i=closes.length-n;i<closes.length;i++){final d=closes[i]-closes[i-1];if(d>=0)gain+=d;else loss-=d;}if(loss==0)return 100;return 100-(100/(1+gain/loss));}
+  final rr=rsi(); final recentHigh=highs.skip(math.max(0,highs.length-21)).reduce(math.max),recentLow=lows.skip(math.max(0,lows.length-21)).reduce(math.min);
+  double atr(){var s=0.0;final n=math.min(14,c.length-1);for(var i=c.length-n;i<c.length;i++){s+=math.max(c[i].h-c[i].l,math.max((c[i].h-c[i-1].c).abs(),(c[i].l-c[i-1].c).abs()));}return s/n;}
+  final at=atr(); final volAvg=c.skip(math.max(0,c.length-21)).map((x)=>x.v).reduce((a,b)=>a+b)/math.min(21,c.length);final vol=c.last.v;
+  final bullish=e20>e50&&e50>e200&&last>e20&&rr>=52; final bearish=e20<e50&&e50<e200&&last<e20&&rr<=48;
+  final breakoutUp=last>recentHigh-at*0.15&&vol>volAvg*1.25, breakoutDown=last<recentLow+at*0.15&&vol>volAvg*1.25;
+  final trend=bullish||bearish, breakout=breakoutUp||breakoutDown; final dir=bullish||breakoutUp?'LONG':bearish||breakoutDown?'SHORT':'NEUTRAL';
+  final regime=trend?'TREND':breakout?'BREAKOUT':'RANGE / UNCLEAR';
+  var score=35;if(trend)score+=20;if(breakout)score+=20;if(vol>volAvg*1.15)score+=8;if((rr>52&&dir=='LONG')||(rr<48&&dir=='SHORT'))score+=7;if(dir=='NEUTRAL')score=math.min(score,59);score=math.min(100,score);
+  final buyer=math.max(5,math.min(95,(50+(rr-50)*1.4+(bullish?18:0)+(breakoutUp?15:0)+(vol>volAvg*1.25?8:0)).round())); final seller=100-buyer;
+  String psych;if(dir=='LONG')psych=breakoutUp?'Buyers are aggressive; breakout-chasing risk is elevated. Wait for confirmation/retest.':'Buyers have structural control; sellers appear weaker, but pullback risk remains.';else if(dir=='SHORT')psych=breakoutDown?'Sellers are aggressive; breakdown-chasing risk is elevated. Wait for confirmation/retest.':'Sellers have structural control; buyers appear weaker, but short-covering risk remains.';else psych='Neither side has a clean edge. Avoid forcing a trade while structure is unclear.';
+  final decision=score>=85?'🔥 HOT TRADE CANDIDATE':score>=75?'🟢 STRONG SETUP':score>=60?'🟡 WATCH':'🔴 NO TRADE';
+  return Analysis(regime:regime,decision:decision,psychology:psych,direction:dir,score:score,buyer:buyer,seller:seller,rsi:rr,ema20:e20,ema50:e50,ema200:e200,atr:at,support:recentLow,resistance:recentHigh,trend:trend,breakout:breakout);
 }
 
-Widget metric(String title, String value) => SizedBox(width: 155, child: Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 12)), Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold))]))));
-
-class CurvePainter extends CustomPainter {
-  final List<double> values;
-  const CurvePainter(this.values);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final lo = values.reduce(math.min), hi = values.reduce(math.max), range = (hi - lo).abs() < .000001 ? 1 : hi - lo;
-    final path = Path();
-    for (var i = 0; i < values.length; i++) {
-      final x = i / (values.length - 1) * size.width;
-      final y = size.height - (values[i] - lo) / range * size.height;
-      if (i == 0) path.moveTo(x, y); else path.lineTo(x, y);
-    }
-    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = 2);
-    canvas.drawRect(Offset.zero & size, Paint()..style = PaintingStyle.stroke);
-  }
-  @override
-  bool shouldRepaint(covariant CurvePainter oldDelegate) => oldDelegate.values != values;
-}
+class CandlePainter extends CustomPainter { final List<Candle> c; CandlePainter(this.c); @override void paint(Canvas canvas,Size s){final n=math.min(80,c.length);final data=c.sublist(c.length-n);final hi=data.map((x)=>x.h).reduce(math.max),lo=data.map((x)=>x.l).reduce(math.min);final range=(hi-lo)==0?1:hi-lo;final w=s.width/n;final paint=Paint()..strokeWidth=1.2;for(var i=0;i<n;i++){final x=i*w+w/2, k=data[i];double y(double p)=>s.height-(p-lo)/range*s.height;paint.color=k.c>=k.o?Colors.greenAccent:Colors.redAccent;canvas.drawLine(Offset(x,y(k.h)),Offset(x,y(k.l)),paint);final top=y(math.max(k.o,k.c)),bot=y(math.min(k.o,k.c));canvas.drawRect(Rect.fromLTWH(x-w*.32,top,w*.64,math.max(1,bot-top)),paint);}}@override bool shouldRepaint(covariant CandlePainter old)=>old.c!=c;}
