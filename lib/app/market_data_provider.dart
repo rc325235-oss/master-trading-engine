@@ -83,15 +83,16 @@ class MarketDataProvider {
     final volumes = q['volume'] as List<dynamic>? ?? [];
 
     final candles = <MarketCandle>[];
-    final count = [timestamps.length, opens.length, highs.length, lows.length, closes.length].reduce((a, b) => a < b ? a : b);
+    final count = [timestamps.length, opens.length, highs.length, lows.length, closes.length]
+        .reduce((a, b) => a < b ? a : b);
     for (var i = 0; i < count; i++) {
       final o = _number(opens[i]);
       final h = _number(highs[i]);
       final l = _number(lows[i]);
       final c = _number(closes[i]);
-      final v = i < volumes.length ? _number(volumes[i]) : 0;
+      final v = i < volumes.length ? _number(volumes[i]) : null;
       if (o == null || h == null || l == null || c == null) continue;
-      candles.add(MarketCandle(o, h, l, c, v ?? 0));
+      candles.add(MarketCandle(o, h, l, c, v ?? 0.0));
     }
 
     if (candles.length < 30) {
@@ -125,7 +126,6 @@ class MarketDataProvider {
       return symbol;
     }
 
-    // Bare Indian equity tickers are resolved to NSE.
     return '$symbol.NS';
   }
 
