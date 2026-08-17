@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'live_intelligence.dart';
 import 'fair_value.dart';
 import 'trade_favorability.dart';
 import 'risk_engine.dart';
 import 'master_decision_engine.dart';
+import 'market_data_provider.dart';
 
 class Candle {
   final double o, h, l, c, v;
@@ -15,12 +14,17 @@ class Candle {
 
 class IntegratedApp extends StatelessWidget {
   const IntegratedApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Master Trading Engine',
-      theme: ThemeData(useMaterial3: true, brightness: Brightness.dark, colorSchemeSeed: Colors.amber),
+      theme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorSchemeSeed: Colors.amber,
+      ),
       home: const Home(),
     );
   }
@@ -28,14 +32,17 @@ class IntegratedApp extends StatelessWidget {
 
 class Home extends StatefulWidget {
   const Home({super.key});
+
   @override
   State<Home> createState() => _HomeState();
 }
 
 class _HomeState extends State<Home> {
-  final symbol = TextEditingController(text: 'BTCUSDT');
-  String tf = '5m';
+  final symbol = TextEditingController(text: 'NIFTY 50');
+  String tf = '1h';
   String error = '';
+  String dataSource = '';
+  String resolvedSymbol = '';
   bool loading = false;
   Timer? timer;
   List<Candle> candles = [];
@@ -52,6 +59,7 @@ class _HomeState extends State<Home> {
     timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && !loading) load();
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => load());
   }
 
   @override
@@ -65,17 +73,19 @@ class _HomeState extends State<Home> {
     if (loading) return;
     setState(() => loading = true);
     try {
-      final s = symbol.text.trim().toUpperCase();
-      final uri = Uri.parse('https://api.binance.com/api/v3/klines?symbol=$s&interval=$tf&limit=250');
-      final response = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
-      final raw = jsonDecode(response.body) as List;
-      final data = raw.map((x) => Candle(
-        double.parse(x[1]), double.parse(x[2]), double.parse(x[3]), double.parse(x[4]), double.parse(x[5]),
-      )).toList();
+      final provider = const MarketDataProvider();
+      final market = await provider.fetch(
+        inputSymbol: symbol.text,
+        timeframe: tf,
+      );
+      final data = market.candles
+          .map((x) => Candle(x.open, x.high, x.low, x.close, x.volume))
+          .toList();
       if (data.length < 30) throw Exception('Insufficient candles');
 
-      final input = data.map((x) => LiveCandle(x.o, x.h, x.l, x.c, x.v)).toList();
+      final input = data
+          .map((x) => LiveCandle(x.o, x.h, x.l, x.c, x.v))
+          .toList();
       final li = const LiveMarketIntelligence();
       final ind = li.calculate(input);
       final sig = li.analyze(input);
@@ -130,6 +140,7 @@ class _HomeState extends State<Home> {
         capital: 100000,
         riskPercent: 1,
       );
+
       if (!mounted) return;
       setState(() {
         candles = data;
@@ -139,10 +150,25 @@ class _HomeState extends State<Home> {
         risk = rp;
         favor = tfv;
         master = md;
+        resolvedSymbol = market.resolvedSymbol;
+        dataSource = market.source;
         error = '';
       });
     } catch (e) {
-      if (mounted) setState(() => error = 'No reliable live feed: $e');
+      if (!mounted) return;
+      // Never leave a stale signal visible after a failed live-data refresh.
+      setState(() {
+        error = 'Live market data unavailable: $e';
+        candles = [];
+        indicators = null;
+        signal = null;
+        fair = null;
+        risk = null;
+        favor = null;
+        master = null;
+        resolvedSymbol = '';
+        dataSource = '';
+      });
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -151,12 +177,29 @@ class _HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) {
     final children = <Widget>[_controls()];
-    if (error.isNotEmpty) children.add(_section('⚠️ DATA STATUS', [error]));
+
+    if (error.isNotEmpty) {
+      children.add(_section('⚠️ DATA STATUS', [error]));
+    } else if (candles.isNotEmpty) {
+      children.add(_section('🟢 LIVE DATA STATUS', [
+        'Source: $dataSource',
+        'Resolved symbol: $resolvedSymbol',
+        'Timeframe: $tf',
+        'Candles: ${candles.length}',
+        'Analysis uses the latest successful market-data response.',
+      ]));
+    }
+
     if (candles.isNotEmpty) {
-      children.add(Card(child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: SizedBox(height: 240, child: CustomPaint(painter: CandlePainter(candles))),
-      )));
+      children.add(Card(
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: SizedBox(
+            height: 240,
+            child: CustomPaint(painter: CandlePainter(candles)),
+          ),
+        ),
+      ));
     }
     if (master != null) children.add(_masterCard());
     if (fair != null) children.add(_fairCard());
@@ -165,35 +208,78 @@ class _HomeState extends State<Home> {
     if (risk != null) children.add(_riskCard());
     if (master != null) children.add(_positionCard());
     if (indicators != null) children.add(_technicalCard());
-    children.add(const Card(child: ListTile(
-      leading: Icon(Icons.shield),
-      title: Text('SAFETY LOCK'),
-      subtitle: Text('Analysis and paper-trading logic only. No live broker order is executed.'),
-    )));
+
+    children.add(const Card(
+      child: ListTile(
+        leading: Icon(Icons.shield),
+        title: Text('SAFETY LOCK'),
+        subtitle: Text(
+          'Analysis and paper-trading logic only. No live broker order is executed.',
+        ),
+      ),
+    ));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('MASTER TRADING ENGINE'),
-        actions: const [Padding(padding: EdgeInsets.all(8), child: Chip(label: Text('ANALYSIS ONLY')))],
+        actions: const [
+          Padding(
+            padding: EdgeInsets.all(8),
+            child: Chip(label: Text('ANALYSIS ONLY')),
+          ),
+        ],
       ),
-      body: ListView(padding: const EdgeInsets.all(10), children: children),
+      body: ListView(
+        padding: const EdgeInsets.all(10),
+        children: children,
+      ),
     );
   }
 
   Widget _controls() {
-    return Card(child: Padding(
-      padding: const EdgeInsets.all(10),
-      child: Row(children: [
-        Expanded(child: TextField(controller: symbol, decoration: const InputDecoration(labelText: 'Symbol', border: OutlineInputBorder()))),
-        const SizedBox(width: 8),
-        DropdownButton<String>(
-          value: tf,
-          items: const ['1m', '3m', '5m', '15m', '1h', '4h'].map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
-          onChanged: (x) { if (x != null) setState(() => tf = x); },
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: symbol,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  labelText: 'Symbol',
+                  hintText: 'NIFTY 50 / BANKNIFTY / RELIANCE',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            DropdownButton<String>(
+              value: tf,
+              items: const ['1m', '5m', '15m', '1h', '1d']
+                  .map((x) => DropdownMenuItem(
+                        value: x,
+                        child: Text(x),
+                      ))
+                  .toList(),
+              onChanged: (x) {
+                if (x != null) setState(() => tf = x);
+              },
+            ),
+            IconButton(
+              onPressed: loading ? null : load,
+              icon: loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+            ),
+          ],
         ),
-        IconButton(onPressed: loading ? null : load, icon: const Icon(Icons.refresh)),
-      ]),
-    ));
+      ),
+    );
   }
 
   Widget _masterCard() {
@@ -226,12 +312,18 @@ class _HomeState extends State<Home> {
     return _section('🔥 TRADE FAVORABILITY', [
       '${v.overall}% IN YOUR FAVOR',
       '${v.inFavor} factors in favor • ${v.neutral} neutral • ${v.against} against',
-      ...v.factors.map((x) => '${x.score >= 70 ? '🟢' : x.score >= 50 ? '🟡' : '🔴'} ${x.name}: ${x.score}% — ${x.detail}'),
+      ...v.factors.map((x) =>
+          '${x.score >= 70 ? '🟢' : x.score >= 50 ? '🟡' : '🔴'} ${x.name}: ${x.score}% — ${x.detail}'),
     ]);
   }
 
   Widget _strategyCard() {
-    return _section('🧠 STRATEGY CONFLUENCE', master!.strategies.map((x) => '${x.name}: ${x.score}% — ${x.detail}').toList());
+    return _section(
+      '🧠 STRATEGY CONFLUENCE',
+      master!.strategies
+          .map((x) => '${x.name}: ${x.score}% — ${x.detail}')
+          .toList(),
+    );
   }
 
   Widget _riskCard() {
@@ -272,19 +364,30 @@ class _HomeState extends State<Home> {
   }
 
   Widget _section(String title, List<String> lines) {
-    return Card(child: ExpansionTile(
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-      children: [Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Align(alignment: Alignment.centerLeft, child: Text(lines.join('\n\n'))),
-      )],
-    ));
+    return Card(
+      child: ExpansionTile(
+        title: Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(lines.join('\n\n')),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
 class CandlePainter extends CustomPainter {
   final List<Candle> data;
   CandlePainter(this.data);
+
   @override
   void paint(Canvas canvas, Size size) {
     final d = data.length > 80 ? data.sublist(data.length - 80) : data;
@@ -293,15 +396,28 @@ class CandlePainter extends CustomPainter {
     final range = hi == lo ? 1.0 : hi - lo;
     final w = size.width / d.length;
     final p = Paint()..strokeWidth = 1;
-    double y(double value) => size.height - (value - lo) / range * size.height;
+
+    double y(double value) =>
+        size.height - (value - lo) / range * size.height;
+
     for (var n = 0; n < d.length; n++) {
       final k = d[n];
       final x = n * w + w / 2;
       p.color = k.c >= k.o ? Colors.greenAccent : Colors.redAccent;
       canvas.drawLine(Offset(x, y(k.h)), Offset(x, y(k.l)), p);
-      canvas.drawRect(Rect.fromLTRB(x - w * .3, y(k.o > k.c ? k.o : k.c), x + w * .3, y(k.o < k.c ? k.o : k.c)), p);
+      canvas.drawRect(
+        Rect.fromLTRB(
+          x - w * .3,
+          y(k.o > k.c ? k.o : k.c),
+          x + w * .3,
+          y(k.o < k.c ? k.o : k.c),
+        ),
+        p,
+      );
     }
   }
+
   @override
-  bool shouldRepaint(covariant CandlePainter oldDelegate) => oldDelegate.data != data;
+  bool shouldRepaint(covariant CandlePainter oldDelegate) =>
+      oldDelegate.data != data;
 }
