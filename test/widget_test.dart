@@ -4,7 +4,7 @@ import 'package:master_trading_engine/app/integrated.dart';
 void main() {
   testWidgets('integrated app starts in analysis-only mode', (tester) async {
     await tester.pumpWidget(const IntegratedApp());
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('MASTER TRADING ENGINE'), findsOneWidget);
     expect(find.text('ANALYSIS ONLY'), findsOneWidget);
