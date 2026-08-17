@@ -3,7 +3,7 @@ name: Android Build and Test
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, feature/live-market-intelligence-v2 ]
 
 jobs:
   build:
