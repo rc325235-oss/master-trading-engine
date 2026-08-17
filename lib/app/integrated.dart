@@ -16,23 +16,20 @@ class IntegratedApp extends StatelessWidget {
   const IntegratedApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Master Trading Engine',
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorSchemeSeed: Colors.amber,
-      ),
-      home: const Home(),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Master Trading Engine',
+        theme: ThemeData(
+          useMaterial3: true,
+          brightness: Brightness.dark,
+          colorSchemeSeed: Colors.amber,
+        ),
+        home: const Home(),
+      );
 }
 
 class Home extends StatefulWidget {
   const Home({super.key});
-
   @override
   State<Home> createState() => _HomeState();
 }
@@ -41,8 +38,8 @@ class _HomeState extends State<Home> {
   final symbol = TextEditingController(text: 'NIFTY 50');
   String tf = '1h';
   String error = '';
-  String dataSource = '';
-  String resolvedSymbol = '';
+  String source = '';
+  String resolved = '';
   bool loading = false;
   Timer? timer;
   List<Candle> candles = [];
@@ -73,19 +70,16 @@ class _HomeState extends State<Home> {
     if (loading) return;
     setState(() => loading = true);
     try {
-      final provider = const MarketDataProvider();
-      final market = await provider.fetch(
+      final market = await const MarketDataProvider().fetch(
         inputSymbol: symbol.text,
         timeframe: tf,
       );
       final data = market.candles
           .map((x) => Candle(x.open, x.high, x.low, x.close, x.volume))
           .toList();
-      if (data.length < 30) throw Exception('Insufficient candles');
+      if (data.length < 30) throw Exception('30 se kam candles mili');
 
-      final input = data
-          .map((x) => LiveCandle(x.o, x.h, x.l, x.c, x.v))
-          .toList();
+      final input = data.map((x) => LiveCandle(x.o, x.h, x.l, x.c, x.v)).toList();
       final li = const LiveMarketIntelligence();
       final ind = li.calculate(input);
       final sig = li.analyze(input);
@@ -150,15 +144,14 @@ class _HomeState extends State<Home> {
         risk = rp;
         favor = tfv;
         master = md;
-        resolvedSymbol = market.resolvedSymbol;
-        dataSource = market.source;
+        resolved = market.resolvedSymbol;
+        source = market.source;
         error = '';
       });
     } catch (e) {
       if (!mounted) return;
-      // Never leave a stale signal visible after a failed live-data refresh.
       setState(() {
-        error = 'Live market data unavailable: $e';
+        error = 'Live data nahi mil raha: $e';
         candles = [];
         indicators = null;
         signal = null;
@@ -166,8 +159,8 @@ class _HomeState extends State<Home> {
         risk = null;
         favor = null;
         master = null;
-        resolvedSymbol = '';
-        dataSource = '';
+        resolved = '';
+        source = '';
       });
     } finally {
       if (mounted) setState(() => loading = false);
@@ -176,22 +169,19 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final children = <Widget>[_controls()];
-
+    final widgets = <Widget>[_controls()];
     if (error.isNotEmpty) {
-      children.add(_section('⚠️ DATA STATUS', [error]));
+      widgets.add(_section('⚠️ DATA STATUS', [error]));
     } else if (candles.isNotEmpty) {
-      children.add(_section('🟢 LIVE DATA STATUS', [
-        'Source: $dataSource',
-        'Resolved symbol: $resolvedSymbol',
+      widgets.add(_section('🟢 LIVE DATA', [
+        'Data source: $source',
+        'Symbol: $resolved',
         'Timeframe: $tf',
         'Candles: ${candles.length}',
-        'Analysis uses the latest successful market-data response.',
       ]));
     }
-
     if (candles.isNotEmpty) {
-      children.add(Card(
+      widgets.add(Card(
         child: Padding(
           padding: const EdgeInsets.all(8),
           child: SizedBox(
@@ -201,21 +191,18 @@ class _HomeState extends State<Home> {
         ),
       ));
     }
-    if (master != null) children.add(_masterCard());
-    if (fair != null) children.add(_fairCard());
-    if (favor != null) children.add(_favorCard());
-    if (master != null) children.add(_strategyCard());
-    if (risk != null) children.add(_riskCard());
-    if (master != null) children.add(_positionCard());
-    if (indicators != null) children.add(_technicalCard());
-
-    children.add(const Card(
+    if (master != null) widgets.add(_masterCard());
+    if (fair != null) widgets.add(_fairCard());
+    if (favor != null) widgets.add(_favorCard());
+    if (master != null) widgets.add(_strategyCard());
+    if (risk != null) widgets.add(_riskCard());
+    if (master != null) widgets.add(_positionCard());
+    if (indicators != null) widgets.add(_technicalCard());
+    widgets.add(const Card(
       child: ListTile(
         leading: Icon(Icons.shield),
         title: Text('SAFETY LOCK'),
-        subtitle: Text(
-          'Analysis and paper-trading logic only. No live broker order is executed.',
-        ),
+        subtitle: Text('Sirf analysis/paper-trading. Koi live broker order place nahi hota.'),
       ),
     ));
 
@@ -229,80 +216,79 @@ class _HomeState extends State<Home> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(10),
-        children: children,
-      ),
+      body: ListView(padding: const EdgeInsets.all(10), children: widgets),
     );
   }
 
-  Widget _controls() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: symbol,
-                textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  labelText: 'Symbol',
-                  hintText: 'NIFTY 50 / BANKNIFTY / RELIANCE',
-                  border: OutlineInputBorder(),
+  Widget _controls() => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: symbol,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: const InputDecoration(
+                    labelText: 'Symbol / Naam',
+                    hintText: 'NIFTY 50 / BANKNIFTY / RELIANCE',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            DropdownButton<String>(
-              value: tf,
-              items: const ['1m', '5m', '15m', '1h', '1d']
-                  .map((x) => DropdownMenuItem(
-                        value: x,
-                        child: Text(x),
-                      ))
-                  .toList(),
-              onChanged: (x) {
-                if (x != null) setState(() => tf = x);
-              },
-            ),
-            IconButton(
-              onPressed: loading ? null : load,
-              icon: loading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-            ),
-          ],
+              const SizedBox(width: 8),
+              DropdownButton<String>(
+                value: tf,
+                items: const ['1m', '5m', '15m', '1h', '1d']
+                    .map((x) => DropdownMenuItem(value: x, child: Text(x)))
+                    .toList(),
+                onChanged: (x) {
+                  if (x != null) {
+                    setState(() {
+                      tf = x;
+                      error = '';
+                    });
+                    load();
+                  }
+                },
+              ),
+              IconButton(
+                onPressed: loading ? null : load,
+                tooltip: 'Refresh data',
+                icon: loading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
 
   Widget _masterCard() {
     final m = master!;
     final v = favor;
-    return _section('🔥 MASTER DECISION', [
+    return _section('🔥 MAIN RESULT', [
       m.decision,
       'Direction: ${m.direction}',
-      'Master Confidence: ${m.confidence}%',
-      'Regime: ${m.regime}',
-      '🟢 In favor: ${v?.inFavor ?? 0}   🟡 Neutral: ${v?.neutral ?? 0}   🔴 Against: ${v?.against ?? 0}',
+      'Confidence: ${m.confidence}%',
+      'Market type: ${m.regime}',
+      '🟢 Mere favour me: ${v?.inFavor ?? 0}   🟡 Neutral: ${v?.neutral ?? 0}   🔴 Against: ${v?.against ?? 0}',
     ]);
   }
 
   Widget _fairCard() {
     final f = fair!;
-    return _section('⚖️ FAIR VALUE ANALYSIS', [
-      'Current Price: ${f.currentPrice.toStringAsFixed(2)}',
-      'Fair Value: ${f.fairValue.toStringAsFixed(2)}',
-      'Fair Value Zone: ${f.zoneLow.toStringAsFixed(2)} – ${f.zoneHigh.toStringAsFixed(2)}',
-      'Distance: ${f.distancePercent.toStringAsFixed(2)}%',
+    return _section('⚖️ FAIR VALUE', [
+      'Abhi ka price: ${f.currentPrice.toStringAsFixed(2)}',
+      'Estimated fair price: ${f.fairValue.toStringAsFixed(2)}',
+      'Fair price range: ${f.zoneLow.toStringAsFixed(2)} – ${f.zoneHigh.toStringAsFixed(2)}',
+      'Fair price se difference: ${f.distancePercent.toStringAsFixed(2)}%',
       'Status: ${f.status}',
-      'Confidence: ${f.confidence}%',
+      'Kitna bharosa: ${f.confidence}%',
       ...f.factors.map((x) => '• $x'),
     ]);
   }
@@ -310,21 +296,17 @@ class _HomeState extends State<Home> {
   Widget _favorCard() {
     final v = favor!;
     return _section('🔥 TRADE FAVORABILITY', [
-      '${v.overall}% IN YOUR FAVOR',
-      '${v.inFavor} factors in favor • ${v.neutral} neutral • ${v.against} against',
+      '${v.overall}% trade mere favour me',
+      '${v.inFavor} strong • ${v.neutral} neutral • ${v.against} weak',
       ...v.factors.map((x) =>
           '${x.score >= 70 ? '🟢' : x.score >= 50 ? '🟡' : '🔴'} ${x.name}: ${x.score}% — ${x.detail}'),
     ]);
   }
 
-  Widget _strategyCard() {
-    return _section(
-      '🧠 STRATEGY CONFLUENCE',
-      master!.strategies
-          .map((x) => '${x.name}: ${x.score}% — ${x.detail}')
-          .toList(),
-    );
-  }
+  Widget _strategyCard() => _section(
+        '🧠 STRATEGY CHECK',
+        master!.strategies.map((x) => '${x.name}: ${x.score}% — ${x.detail}').toList(),
+      );
 
   Widget _riskCard() {
     final r = risk!;
@@ -334,14 +316,14 @@ class _HomeState extends State<Home> {
       'Stop Loss: ${r.stopLoss.toStringAsFixed(2)}',
       'Target 1: ${r.target1.toStringAsFixed(2)} • R:R ${r.rewardToTarget1.toStringAsFixed(2)}',
       'Target 2: ${r.target2.toStringAsFixed(2)} • R:R ${r.rewardToTarget2.toStringAsFixed(2)}',
-      'Risk/Unit: ${r.riskPerUnit.toStringAsFixed(2)}',
+      'Ek unit ka risk: ${r.riskPerUnit.toStringAsFixed(2)}',
     ]);
   }
 
   Widget _positionCard() {
     final m = master!;
-    return _section('📐 POSITION SIZING', [
-      'Illustrative capital: ₹100000',
+    return _section('📐 KITNI QUANTITY?', [
+      'Example capital: ₹100000',
       'Risk budget: ${m.riskAmount.toStringAsFixed(2)}',
       'Calculated quantity: ${m.positionSize.toStringAsFixed(6)}',
     ]);
@@ -349,39 +331,34 @@ class _HomeState extends State<Home> {
 
   Widget _technicalCard() {
     final i = indicators!;
-    return _section('📈 LIVE TECHNICALS', [
-      'Regime: ${signal?.regime}',
+    return _section('📈 TECHNICAL CHECK', [
+      'Market type: ${signal?.regime}',
       'Direction: ${signal?.direction}',
       'EMA20: ${i.ema20.toStringAsFixed(2)}',
       'EMA50: ${i.ema50.toStringAsFixed(2)}',
       'EMA200: ${i.ema200.toStringAsFixed(2)}',
       'RSI: ${i.rsi14.toStringAsFixed(1)}',
       'ATR: ${i.atr14.toStringAsFixed(2)}',
-      'Volume Ratio: ${i.volumeRatio.toStringAsFixed(2)}x',
+      'Volume: ${i.volumeRatio.toStringAsFixed(2)}x average',
       'Support: ${i.support.toStringAsFixed(2)}',
       'Resistance: ${i.resistance.toStringAsFixed(2)}',
     ]);
   }
 
-  Widget _section(String title, List<String> lines) {
-    return Card(
-      child: ExpansionTile(
-        title: Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(lines.join('\n\n')),
+  Widget _section(String title, List<String> lines) => Card(
+        child: ExpansionTile(
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(lines.join('\n\n')),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+          ],
+        ),
+      );
 }
 
 class CandlePainter extends CustomPainter {
@@ -396,10 +373,7 @@ class CandlePainter extends CustomPainter {
     final range = hi == lo ? 1.0 : hi - lo;
     final w = size.width / d.length;
     final p = Paint()..strokeWidth = 1;
-
-    double y(double value) =>
-        size.height - (value - lo) / range * size.height;
-
+    double y(double value) => size.height - (value - lo) / range * size.height;
     for (var n = 0; n < d.length; n++) {
       final k = d[n];
       final x = n * w + w / 2;
@@ -418,6 +392,5 @@ class CandlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CandlePainter oldDelegate) =>
-      oldDelegate.data != data;
+  bool shouldRepaint(covariant CandlePainter oldDelegate) => oldDelegate.data != data;
 }
