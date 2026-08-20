@@ -32,3 +32,5 @@ jobs:
           name: master-trading-engine-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
+
+# Final APK build trigger: push to main intentionally starts this workflow.
