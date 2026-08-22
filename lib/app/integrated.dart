@@ -382,7 +382,7 @@ class _IntegratedAppState extends State<IntegratedApp> {
   ]));
 
   Widget _copilot(Analysis a) => _panel('AI MARKET COPILOT', Text(
-    'Market regime: ${a.regime}. Direction: ${a.direction}. RSI ${a.rsi.toStringAsFixed(1)}, EMA20 ${fmt(a.ema20)}, EMA50 ${fmt(a.ema50)}, EMA200 ${fmt(a.ema200)}. Analysis and paper-trading data are shown from the connected engine.',
+    'Market regime: ${a.regime}. Direction: ${a.direction}. RSI ${a.rsi.toStringAsFixed(1)}, EMA20 ${fmt(a.ema20)}, EMA50 ${fmt(a.ema50)}, EMA200 ${fmt(a.ema200)}. This dashboard provides analysis and paper-trading information only.',
     style: const TextStyle(color: Colors.white70, fontSize: 9, height: 1.5),
   ));
 
@@ -423,47 +423,86 @@ class _IntegratedAppState extends State<IntegratedApp> {
 Analysis analyze(List<Candle> data) {
   if (data.length < 3) {
     return const Analysis(
-      regime: 'WAITING', direction: 'NEUTRAL', psychology: 'Waiting for enough market data.', score: 0,
-      buyer: 50, seller: 50, rsi: 50, ema20: 0, ema50: 0, ema200: 0, atr: 0,
-      support: 0, resistance: 0, fair: 0, trend: false, breakout: false,
+      regime: 'WAITING',
+      direction: 'NEUTRAL',
+      psychology: 'Waiting for enough market data.',
+      score: 0,
+      buyer: 50,
+      seller: 50,
+      rsi: 50,
+      ema20: 0,
+      ema50: 0,
+      ema200: 0,
+      atr: 0,
+      support: 0,
+      resistance: 0,
+      fair: 0,
+      trend: false,
+      breakout: false,
     );
   }
+
   final close = data.map((x) => x.c).toList();
-  final lookback = math.min(21, data.length).toInt();
-  final start = data.length - lookback;
+  final int lookback = math.min(21, data.length).toInt();
+  final int start = data.length - lookback;
+
   double ema(int period) {
     var value = close.first;
     final k = 2.0 / (period + 1.0);
-    for (final price in close.skip(1)) value = price * k + value * (1.0 - k);
+    for (final price in close.skip(1)) {
+      value = price * k + value * (1.0 - k);
+    }
     return value;
   }
+
   double minValue(Iterable<double> values) {
     var result = double.infinity;
-    for (final value in values) result = math.min(result, value).toDouble();
-    return result;
-  }
-  double maxValue(Iterable<double> values) {
-    var result = -double.infinity;
-    for (final value in values) result = math.max(result, value).toDouble();
+    for (final value in values) {
+      if (value < result) result = value;
+    }
     return result;
   }
 
-  final e20 = ema(20), e50 = ema(50), e200 = ema(200);
-  final period = math.min(14, close.length - 1).toInt();
-  var gain = 0.0, loss = 0.0, trueRange = 0.0;
-  final rsiStart = close.length - period;
+  double maxValue(Iterable<double> values) {
+    var result = -double.infinity;
+    for (final value in values) {
+      if (value > result) result = value;
+    }
+    return result;
+  }
+
+  final e20 = ema(20);
+  final e50 = ema(50);
+  final e200 = ema(200);
+  final int period = math.min(14, close.length - 1).toInt();
+  var gain = 0.0;
+  var loss = 0.0;
+  var trueRange = 0.0;
+  final int rsiStart = close.length - period;
+
   for (var i = rsiStart; i < close.length; i++) {
     final change = close[i] - close[i - 1];
-    if (change >= 0) gain += change; else loss -= change;
-    trueRange += math.max(data[i].h - data[i].l, math.max((data[i].h - data[i - 1].c).abs(), (data[i].l - data[i - 1].c).abs())).toDouble();
+    if (change >= 0) {
+      gain += change;
+    } else {
+      loss -= change;
+    }
+    trueRange += math.max(
+      data[i].h - data[i].l,
+      math.max(
+        (data[i].h - data[i - 1].c).abs(),
+        (data[i].l - data[i - 1].c).abs(),
+      ),
+    ).toDouble();
   }
+
   final rsi = loss == 0 ? 100.0 : 100.0 - (100.0 / (1.0 + gain / loss));
   final atr = trueRange / period;
   final support = minValue(data.sublist(start).map((x) => x.l));
   final resistance = maxValue(data.sublist(start).map((x) => x.h));
   final last = close.last;
-  final previousStart = math.max(0, data.length - lookback - 1).toInt();
-  final previousEnd = data.length - 1;
+  final int previousStart = math.max(0, data.length - lookback - 1).toInt();
+  final int previousEnd = data.length - 1;
   final previousHigh = maxValue(data.sublist(previousStart, previousEnd).map((x) => x.h));
   final previousLow = minValue(data.sublist(previousStart, previousEnd).map((x) => x.l));
   final bull = e20 > e50 && e50 > e200 && last > e20 && rsi >= 52;
@@ -474,18 +513,25 @@ Analysis analyze(List<Candle> data) {
   final direction = bull || breakoutUp ? 'LONG' : bear || breakoutDown ? 'SHORT' : 'NEUTRAL';
   final trend = bull || bear;
   final regime = breakout ? 'BREAKOUT' : trend ? 'TREND' : 'RANGE';
+
   var score = 35;
   if (trend) score += 20;
   if (breakout) score += 20;
   if (rsi >= 55 || rsi <= 45) score += 10;
   if (direction == 'NEUTRAL') score = math.min(score, 59).toInt();
   score = math.min(score, 100).toInt();
+
   final buyerRaw = 50 + (rsi - 50) * 1.4 + (bull ? 18 : 0) + (breakoutUp ? 12 : 0) - (breakoutDown ? 12 : 0);
-  final buyer = buyerRaw.round().clamp(5, 95).toInt();
+  final int buyer = buyerRaw.round().clamp(5, 95).toInt();
+
   return Analysis(
     regime: regime,
     direction: direction,
-    psychology: direction == 'LONG' ? 'Buyers have structural control.' : direction == 'SHORT' ? 'Sellers have structural control.' : 'No clean participant edge.',
+    psychology: direction == 'LONG'
+        ? 'Buyers have structural control.'
+        : direction == 'SHORT'
+            ? 'Sellers have structural control.'
+            : 'No clean participant edge.',
     score: score,
     buyer: buyer,
     seller: 100 - buyer,
@@ -509,7 +555,8 @@ class CandlePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty || size.width <= 0 || size.height <= 0) return;
-    final count = math.min(80, data.length).toInt();
+
+    final int count = math.min(80, data.length).toInt();
     final visible = data.sublist(data.length - count);
     var high = -double.infinity;
     var low = double.infinity;
@@ -517,10 +564,12 @@ class CandlePainter extends CustomPainter {
       high = math.max(high, candle.h).toDouble();
       low = math.min(low, candle.l).toDouble();
     }
+
     final range = high == low ? 1.0 : high - low;
     final width = size.width / count;
     final paint = Paint()..strokeWidth = 1.2;
     double y(double value) => size.height - ((value - low) / range * size.height);
+
     for (var i = 0; i < count; i++) {
       final candle = visible[i];
       final x = i * width + width / 2;
@@ -528,7 +577,10 @@ class CandlePainter extends CustomPainter {
       canvas.drawLine(Offset(x, y(candle.h)), Offset(x, y(candle.l)), paint);
       final top = y(math.max(candle.o, candle.c).toDouble());
       final bottom = y(math.min(candle.o, candle.c).toDouble());
-      canvas.drawRect(Rect.fromLTWH(x - width * 0.3, top, width * 0.6, math.max(1.0, bottom - top).toDouble()), paint);
+      canvas.drawRect(
+        Rect.fromLTWH(x - width * 0.3, top, width * 0.6, math.max(1.0, bottom - top).toDouble()),
+        paint,
+      );
     }
   }
 
