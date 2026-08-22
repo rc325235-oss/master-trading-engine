@@ -19,6 +19,6 @@ void main() {
     expect(result.atr, greaterThan(0));
     expect(result.support, lessThanOrEqualTo(result.resistance));
     expect(result.buyer + result.seller, equals(100));
-    expect(result.score, inInclusiveRange(0, 100));
+    expect(result.score >= 0 && result.score <= 100, isTrue);
   });
 }
